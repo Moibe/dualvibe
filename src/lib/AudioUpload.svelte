@@ -1,4 +1,11 @@
 <script>
+  import { Client } from '@gradio/client'
+  import { createEventDispatcher } from 'svelte'
+  import { saveProcessing } from './firebase'
+  import { user } from './authStore'
+
+  const dispatch = createEventDispatcher()
+
   let audioFile = null
   let audioName = ''
   let inputElement
@@ -10,6 +17,8 @@
   let currentTime = 0
   let duration = 0
   let volume = 1
+  let isProcessing = false
+  let processError = null
 
   function handleClick() {
     if (!isLoading && !audioFile) {
@@ -105,6 +114,61 @@
       audioElement.volume = volume
     }
   }
+
+  async function processAudio() {
+    if (!audioFile || isProcessing) return
+    isProcessing = true
+    processError = null
+    dispatch('processStart')
+
+    const startTime = Date.now()
+
+    try {
+      const client = await Client.connect('CleanSong/demucs-splitter')
+      const result = await client.predict('/split_vocals', {
+        audio_file: audioFile,
+      })
+
+      const vocalsUrl = result.data[0]?.url
+      const instrumentalUrl = result.data[1]?.url
+      const status = result.data[2]
+      const processingTimeMs = Date.now() - startTime
+
+      dispatch('processComplete', { vocalsUrl, instrumentalUrl, status })
+
+      await saveProcessing({
+        firebase_uid: $user?.uid || null,
+        original_filename: audioFile.name,
+        file_size_bytes: audioFile.size,
+        duration_seconds: duration || null,
+        vocals_url: vocalsUrl || null,
+        instrumental_url: instrumentalUrl || null,
+        status: 'success',
+        error_message: null,
+        processing_time_ms: processingTimeMs,
+        space_used: 'CleanSong/demucs-splitter'
+      })
+    } catch (err) {
+      console.error('Error procesando audio:', err)
+      processError = err.message || 'Error al procesar el audio'
+      dispatch('processError', { error: processError })
+
+      await saveProcessing({
+        firebase_uid: $user?.uid || null,
+        original_filename: audioFile.name,
+        file_size_bytes: audioFile.size,
+        duration_seconds: duration || null,
+        vocals_url: null,
+        instrumental_url: null,
+        status: 'error',
+        error_message: processError,
+        processing_time_ms: Date.now() - startTime,
+        space_used: 'CleanSong/demucs-splitter'
+      })
+    } finally {
+      isProcessing = false
+    }
+  }
 </script>
 
 <div class="upload-container">
@@ -158,6 +222,12 @@
     <button class="clear-btn" on:click={clearAudio}>
       ✕ Limpiar
     </button>
+    <button class="process-btn" on:click={processAudio} disabled={isProcessing}>
+      {isProcessing ? '⏳ Procesando...' : '⚙️ Procesar'}
+    </button>
+    {#if processError}
+      <div class="error-msg">{processError}</div>
+    {/if}
   {/if}
 </div>
 
@@ -436,8 +506,50 @@
     border-color: rgba(255, 255, 255, 0.5);
   }
 
+
   .clear-btn:active {
     transform: scale(0.95);
+  }
+
+  .process-btn {
+    width: 100%;
+    background: linear-gradient(135deg, #a259c6, #6d28d9);
+    color: white;
+    border: none;
+    padding: 0.7rem 1.2rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+    margin-top: 0.7rem;
+  }
+
+  .process-btn:hover {
+    background: linear-gradient(135deg, #6d28d9, #a259c6);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(108, 0, 180, 0.3);
+  }
+
+  .process-btn:active {
+    transform: translateY(0);
+  }
+
+  .process-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .error-msg {
+    color: #fca5a5;
+    background: rgba(220, 38, 38, 0.15);
+    border: 1px solid rgba(220, 38, 38, 0.3);
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    text-align: center;
+    width: 100%;
   }
 
   @media (max-width: 600px) {
