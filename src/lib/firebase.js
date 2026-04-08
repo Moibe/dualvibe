@@ -78,10 +78,77 @@ export async function saveProcessing(data) {
   }
 }
 
+export async function getUsage(firebaseUid) {
+  try {
+    const response = await fetch(`${API_BASE}/api/usage/${firebaseUid}`)
+    if (!response.ok) return null
+    return await response.json()
+  } catch (err) {
+    console.error('Error obteniendo usage:', err)
+    return null
+  }
+}
+
+export async function createUsage(firebaseUser) {
+  try {
+    const response = await fetch(`${API_BASE}/api/usage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        firebase_uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        usos: 0,
+        creditos: 0
+      })
+    })
+    if (!response.ok) {
+      const errText = await response.text()
+      console.error('Error creando usage:', response.status, errText)
+      return null
+    }
+    const data = await response.json()
+    console.log('✅ Usage creado:', data)
+    return data
+  } catch (err) {
+    console.error('Error conectando con API (usage):', err)
+    return null
+  }
+}
+
+export async function incrementarUso(firebaseUid) {
+  try {
+    const usage = await getUsage(firebaseUid)
+    if (!usage) {
+      console.warn('No se encontró usage para:', firebaseUid)
+      return null
+    }
+    const response = await fetch(`${API_BASE}/api/usage/${firebaseUid}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usos: usage.usos + 1 })
+    })
+    if (!response.ok) {
+      const errText = await response.text()
+      console.error('Error incrementando uso:', response.status, errText)
+      return null
+    }
+    const data = await response.json()
+    console.log('✅ Uso incrementado:', data)
+    return data
+  } catch (err) {
+    console.error('Error conectando con API (incrementar uso):', err)
+    return null
+  }
+}
+
 export async function loginWithGoogle() {
   const provider = new GoogleAuthProvider()
   const result = await signInWithPopup(auth, provider)
   await registerUserInAPI(result.user)
+  const existing = await getUsage(result.user.uid)
+  if (!existing) {
+    await createUsage(result.user)
+  }
   return result
 }
 

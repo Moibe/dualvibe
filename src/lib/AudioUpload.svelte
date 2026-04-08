@@ -1,7 +1,7 @@
 <script>
   import { Client } from '@gradio/client'
   import { createEventDispatcher } from 'svelte'
-  import { saveProcessing } from './firebase'
+  import { saveProcessing, incrementarUso } from './firebase'
   import { user } from './authStore'
 
   const dispatch = createEventDispatcher()
@@ -148,6 +148,10 @@
         processing_time_ms: processingTimeMs,
         space_used: 'CleanSong/demucs-splitter'
       })
+
+      if ($user?.uid) {
+        await incrementarUso($user.uid)
+      }
     } catch (err) {
       console.error('Error procesando audio:', err)
       processError = err.message || 'Error al procesar el audio'
